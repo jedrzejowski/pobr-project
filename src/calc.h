@@ -21,6 +21,12 @@ namespace calc {
 		return hue;
 	}
 
+	void trimImage(type::MatGray &matrix) {
+		matrix.forEach([&](auto &pixel, const int position[]) -> void {
+			pixel[0] = trimNorm(pixel[0]);
+		});
+	}
+
 	bool isPointInSize(const cv::Point &point, const cv::Size &size) {
 		return point.x >= 0 && point.y >= 0 &&
 			   point.x < size.width && point.y < size.height;
