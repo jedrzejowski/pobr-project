@@ -2,8 +2,6 @@
 
 #include "opencv.h"
 #include "types.h"
-#include "assert.h"
-
 
 namespace lib {
 
@@ -46,15 +44,45 @@ namespace lib {
 		return output;
 	}
 
-	type::MatColor loadAsset(const std::string &name) {
-		static const std::string prefix = "../assets/";
-		auto image = cv::imread(prefix + name);
-
-		return normalize(image);
+	type::MatColor loadImage(const std::string &name) {
+		return normalize(cv::imread(name));
 	}
 
-	void showMat(const std::string title, const cv::Mat &matrix) {
+	void saveImage(const std::string &name, const type::MatColor &image) {
+		cv::imwrite(name, denormalize(image));
+	}
+
+	void showMat(const std::string &title, const cv::Mat &matrix) {
 
 		cv::imshow(title, denormalize(matrix));
+	}
+
+	void drawRectangleOnImg(
+			type::MatColor &img,
+			const cv::Rect2i &rect,
+			type::VecColor &color,
+			int thickness = 1
+	) {
+		auto area_rect = cv::Rect2i(cv::Point2i(0, 0), img.size());
+
+		img(cv::Rect2i(
+				rect.tl() + cv::Point2i(-thickness, -thickness),
+				cv::Size2i(rect.width + thickness, thickness)
+		) & area_rect) = color;
+
+		img(cv::Rect2i(
+				rect.tl() + cv::Point2i(-thickness, 0),
+				cv::Size2i(thickness, rect.height + thickness)
+		) & area_rect) = color;
+
+		img(cv::Rect2i(
+				rect.tl() + cv::Point2i(rect.width, -thickness),
+				cv::Size2i(thickness, rect.height + thickness)
+		) & area_rect) = color;
+
+		img(cv::Rect2i(
+				rect.tl() + cv::Point2i(0, rect.height),
+				cv::Size2i(rect.width + thickness, thickness)
+		) & area_rect) = color;
 	}
 }

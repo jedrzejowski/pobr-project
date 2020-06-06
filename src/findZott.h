@@ -4,14 +4,23 @@
 #include "lib.h"
 #include "color.h"
 #include "paramWX.h"
+#include "logger.h"
 
 
-void findZott(const std::string &name) {
+struct findZottResult {
+	std::vector<cv::Rect2i> rects;
+	type::MatColor output_image;
+};
 
-	const auto original = lib::loadAsset(name);
-	lib::showMat(name + "/original", original);
 
-	auto original_hsl = color::matRGB2HSL(original.clone());
+findZottResult findZott(
+		const type::MatColor &original_image,
+		type::ProgressF &progress = [](const real &) {}
+) {
+
+	findZottResult result;
+
+	auto original_hsl = color::matRGB2HSL(original_image);
 
 	auto red_image = type::MatGray(original_hsl.rows, original_hsl.cols);
 	auto white_image = type::MatGray(original_hsl.rows, original_hsl.cols);
@@ -23,37 +32,26 @@ void findZott(const std::string &name) {
 		const auto &S = color[type::HSL::Si];
 
 		red_image(position[0], position[1]) = (
-													  (H < 45 || H > 360 - 45) &&
+													  (H < 20 || H > 360 - 20) &&
 													  (0.25 < S) &&
 													  (0.25 < L && L < 0.75)
 											  ) ? 1 : 0;
 
-
-		white_image(position[0], position[1]) = (
-														(L > 0.6)
-												) ? 1 : 0;
+		if (L > 0.75) {
+			white_image(position[0], position[1]) = 1;
+		} else if (L > 0.5 && S < 0.33) {
+			white_image(position[0], position[1]) = 1;
+		}
 	});
 
-	lib::showMat(name + "/white_image", white_image);
-	lib::showMat(name + "/red_image", red_image);
-
-//	lib::showMat(name + "/red_opened", red_opened);
-
 	const auto red_opened = calc::opening(red_image);
-	const auto red_dilation = calc::dilation(red_image);
-	const auto white_dilation = calc::dilation(white_image);
+	const auto white_closed = calc::closing(white_image);
 
-	auto figures = calc::findGrayFigures(red_opened);
-
-	std::atomic<int> i = 0;
-
-	std::mutex mutex;
+	// std::atomic<int> i = 0;
 
 	// Szukamy kółka
-	std::for_each(figures.begin(), figures.end(), [&](const type::MatGray &fig_opened) {
-		int my_i = ++i;
-		std::stringstream ss;
-		ss << "\t" << my_i << " ";
+	calc::findGrayFiguresLowRam(red_opened, [&](const type::MatGray &fig_opened) {
+		// auto logger = Logger(std::to_string(++i));
 
 		cv::Rect2i zott_rect;
 		cv::Point2i zott_center;
@@ -64,14 +62,6 @@ void findZott(const std::string &name) {
 			circle_S = calc::countArea(fig_opened);
 			if (circle_S < 10) return;
 
-			auto W3 = param::W3(fig_opened);
-			if (cv::abs(W3) > 0.25) return;
-
-			auto W4 = param::W4(fig_opened);
-			if (!calc::isInOffset(W4, 1, 0.25)) return;
-
-			//Wyliczenie parametrów koła
-
 			auto m_00 = param::m_pq(fig_opened, 0, 0);
 			auto m_10 = param::m_pq(fig_opened, 1, 0);
 			auto m_01 = param::m_pq(fig_opened, 0, 1);
@@ -79,6 +69,27 @@ void findZott(const std::string &name) {
 			real dash_i = m_10 / m_00;
 			real dash_j = m_01 / m_00;
 			zott_center = cv::Point2i(dash_j, dash_i);
+
+			auto img_perimeter = calc::filter(fig_opened, edge_filter_matrix);
+			auto L = calc::countPerimeter(img_perimeter);
+
+			auto W3 = (L / (2 * cv::sqrt(circle_S * CV_PI))) - 1;
+			if (cv::abs(W3) > 0.25) return;
+
+			{// W4
+				real calka = calc::sum<type::VecGray>(fig_opened, [&](const auto &pixel, const int position[]) -> real {
+					if (pixel[0] < 0.5) return 0;
+
+					real r = cv::pow(dash_i - real(position[0]), 2) + cv::pow(dash_j - real(position[1]), 2);
+					// r = cv::pow(cv::sqrt(r, 2), 2);
+					return r;
+				});
+
+				auto W4 = circle_S / cv::sqrt(2 * CV_PI * calka);
+				if (!calc::isInOffset(W4, 1, 0.25)) return;
+			}
+
+			//Wyliczenie parametrów koła
 
 			circle_r = cv::sqrt(circle_S / CV_PI);
 			auto offset = circle_r * 11;
@@ -89,27 +100,26 @@ void findZott(const std::string &name) {
 			zott_rect = img_rec & sub_rect;
 		}
 
-		auto fig_red = red_image(zott_rect);
-		auto fig_red_opened = red_opened(zott_rect);
+		const auto img_red = red_image(zott_rect);
+		const auto img_red_opened = red_opened(zott_rect);
+		const auto img_white = white_image(zott_rect);
 
 		// sprawdza czy jest odpowiednio duzo czerwonego w obrazie
-		if (calc::countArea(fig_red_opened) / zott_rect.area() < 0.10) return;
+		if (calc::countArea(img_red_opened) / zott_rect.area() < 0.10) return;
 
-		auto fig_white = white_image(zott_rect);
-//		auto fig_red_dilation = red_dilation(zott_rect);
 
 		// wyliczamy czy kółko jest pełne
 		{
-			type::MatGray fig_sum = fig_white + fig_red;
-			calc::trimImage(fig_sum);
-			fig_sum = calc::dilation(fig_sum);
+			type::MatGray img_sum = img_white + img_red;
+			calc::trimImage(img_sum);
+			img_sum = calc::dilation(img_sum);
 
 			std::atomic<int> sum = false;
 			real zott_r2 = cv::pow(circle_r * 4, 2);
 
 			cv::Point2i zott_center_here = zott_center - zott_rect.tl();
 
-			fig_sum.forEach([&](const auto &pixel, const int position[]) {
+			img_sum.forEach([&](const auto &pixel, const int position[]) {
 
 				if (cv::pow(position[0] - zott_center_here.y, 2) +
 					cv::pow(position[1] - zott_center_here.x, 2) < zott_r2 &&
@@ -121,52 +131,80 @@ void findZott(const std::string &name) {
 			if (sum < zott_r2 * CV_PI * 0.95) return;
 		}
 
-		auto fig_white_dilation = white_dilation(zott_rect);
+		auto img_white_closed = white_closed(zott_rect);
 
+		// znajdujemy "długi" biały obiekt
 		{
-//			mutex.lock();
-//			lib::showMat(name + "/fig/" + std::to_string(my_i) + "/fig_white_dilation", fig_white_dilation);
-//			mutex.unlock();
-		}
-////		auto fig_red_eroded = calc::erosion(fig_red);
-////		auto size = std::max(rect.width, rect.height);
-////		for (int i = int(size / 100) - 1; i >= 0; --i) {
-////			fig_red_eroded = calc::erosion(fig_red_eroded);
-////		}
-//
-////		auto my_i = ++i;
-////		std::stringstream ss;
-////		ss << "\t" << my_i;
-////		auto sub_figs = calc::findGrayFigures(fig_red_eroded);
-//
-//
-//		bool was_top = false, was_bottom = false;
-//
-//		int w = 0;
-//		for (const auto &sub_fig : sub_figs) {
-//			w++;
-//			auto M1 = param::M1(sub_fig);
-////			auto M7 = param::M7(sub_fig);
-////			auto W3 = param::W3(sub_fig);
-////			auto W4 = param::W4(sub_fig);
-//
-//			if (M1 > 0.2) {
-//				was_bottom = true;
-//			}
-//
-////			ss << "\t\t" << w << " M1=" << M1 << " M7=" << M7 << " W3=" << W3 << " W4=" << W4 << std::endl;
-////
-////			mutex.lock();
-////			lib::showMat(name + "/fig/" + std::to_string(my_i) + "/" + std::to_string(w), sub_fig);
-////			mutex.unlock();
-//		}
-//
-//		if (was_bottom) {
+			std::atomic<bool> found = false;
+			calc::findGrayFiguresLowRam(img_white_closed, [&](const type::MatGray &fig) {
+				auto S = calc::countArea(fig);
+				auto perimeter = calc::filter(fig, edge_filter_matrix);
+				auto L = calc::countPerimeter(perimeter);
 
-		mutex.lock();
-		std::cout << ss.str() << zott_center << " " << circle_S << " " << circle_r << std::endl;
-		lib::showMat(name + "/fig/" + std::to_string(my_i), fig_red);
-		mutex.unlock();
-//		}
+				if (L / S < 1) {
+					found = true;
+				}
+			});
+			if (!found) return;
+		}
+
+
+		{ // znajdujemy spore kwałki czerwieni
+			const auto area = zott_rect.area();
+			cv::Point2i zott_center_here = zott_center - zott_rect.tl();
+			real zott_r2 = cv::pow(circle_r * 5, 2);
+			std::atomic<int> found_count = 0;
+
+			calc::findGrayFiguresLowRam(img_red_opened, [&](const type::MatGray &fig) {
+				auto S = calc::countArea(fig);
+
+				auto m_00 = param::m_pq(fig, 0, 0);
+				auto m_10 = param::m_pq(fig, 1, 0);
+				auto m_01 = param::m_pq(fig, 0, 1);
+
+				real dash_i = m_10 / m_00;
+				real dash_j = m_01 / m_00;
+
+				auto ratio = S / area;
+
+				// jest odpowiedniej wielkości
+				if (!(0.03 < ratio && ratio < 0.10)) return;
+
+				// jego środek jest blisko
+				if (cv::pow(dash_i - zott_center_here.y, 2) +
+					cv::pow(dash_j - zott_center_here.x, 2) > zott_r2)
+					return;
+
+				// jeżeli nie dotyka ścianek
+				for (int n = 0; n < fig.rows; n++) {
+					if (fig(n, 0)[0] > 0.5) return;
+					if (fig(n, fig.cols - 1)[0] > 0.5) return;
+				}
+				for (int n = 0; n < fig.cols; n++) {
+					if (fig(0, n)[0] > 0.5) return;
+					if (fig(fig.rows - 1, n)[0] > 0.5) return;
+				}
+
+				++found_count;
+			});
+
+			if (found_count == 0) return;
+		}
+
+
+		// logger.log("zott_center", zott_center).log("circle_S", circle_S).log("circle_r", circle_r);
+		// logger.print();
+		// lib::showMat(name + "/fig/" + logger.getName(), img_red_opened);
+		result.rects.push_back(zott_rect);
+	}, progress);
+
+	result.output_image = original_image.clone();
+
+	int thickness = (real(std::min(original_image.size[0], original_image.size[1])) * 0.005)+ 1;
+	std::for_each(result.rects.begin(), result.rects.end(), [&](auto &rect) {
+		static auto border_color = type::VecColor(1, 0, 1);
+		lib::drawRectangleOnImg(result.output_image, rect, border_color, thickness);
 	});
+
+	return result;
 }

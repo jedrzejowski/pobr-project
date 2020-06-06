@@ -271,7 +271,6 @@ namespace calc {
 					}
 				}
 
-
 				output.push_back(findGrayFigure(image, point));
 
 				endloop:
@@ -280,6 +279,40 @@ namespace calc {
 		}
 
 		return output;
+	}
+
+	void findGrayFiguresLowRam(
+			const type::MatGray &image,
+			const std::function<void(const type::MatGray &figure)> &functor,
+			type::ProgressF &progress = [](const real &) {}
+	) {
+		const auto size = image.size();
+		const auto area = image.size().area();
+		type::MatGray sum = type::MatGray::zeros(size);
+		type::MatGray figure;
+		real iters = 0;
+
+		for (int x = 0; x < size.width; x++) {
+			for (int y = 0; y < size.height; y++) {
+				++iters;
+
+				auto point = cv::Point2i(x, y);
+
+				if (image(point)[0] < 0.5) {
+					continue;
+				}
+
+				if (sum(point)[0] > 0.5) {
+					continue;
+				}
+
+				figure = findGrayFigure(image, point);
+				sum += figure;
+
+				functor(figure);
+				progress(iters / area);
+			}
+		}
 	}
 
 	real countPerimeter(const type::MatGray &img) {

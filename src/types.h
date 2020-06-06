@@ -31,4 +31,6 @@ namespace type {
 	VecColor createHLS(const real &H, const real &L, const real &S) {
 		return VecColor(H, L, S);
 	}
+
+	using ProgressF = const std::function<void(const real &precent)>;
 }
