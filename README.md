@@ -29,7 +29,7 @@ Opisy poszczególnych plików:
  - `src/lib.h` - wczytywanie, zapisywanie i wyświetlanie obrazu
  - `src/calc.h` - różna funkcje obliczeniowe
  - `src/logger.h` - logger
- - `src/types.h` - typy aby uprościć deklaracje
+ - `src/types.h` - typy upraszczające deklaracje
  
 Wszystkie obliczenia są realizowane na normalizowanych wartościach `0-1` o podwójnej precyzji. 
 
@@ -41,9 +41,9 @@ Na początku obraz jest progowany na wartości czerwone i białe loga.
 
 Z obrazu czerwonego jest poszukiwane koło, środek litery `o`.
 Wyliczane są przy tym parametry `W3` i `W4` dla każdego kawałka obrazu.
-Jeżeli okaże się, że to może być coś przypominające koło, wyliczany jest promień koła i brany jest kwadrat obrazu o boku długości 11-krotności promienia koła.
+Jeżeli okaże się, że to może być kształ koła, wyliczany jest jego promień, a następnie brany jest kwadrat obrazu o boku długości 11-krotności promienia koła.
 
-Następnie dodawany jest kwadrat obrazu czerwonego i białego i sprawdzane czy jest dostatecznie wypełniony.
+Następnie dodawany jest kwadrat obrazu czerwonego i białego oraz sprawdzany czy jest dostatecznie wypełniony.
 Dalej szukamy białego obiektu, który spełnia zależność `L/S < 1`, gdzie `L` to obwód, a `S` to pole, parametr znaleziony doświadczalnie.
 
 W ostatnim kroku znajdujemy kawałki czerwieni o polu od 3% do 10% powierzchni względem kwadratu i oddalone od środka o 5-krotność promienia koła.
@@ -51,8 +51,8 @@ W ostatnim kroku znajdujemy kawałki czerwieni o polu od 3% do 10% powierzchni w
 ## Wyjaśnienia
 
 Logo Zott jest wysoce nie stabilne.
-Poszczególne litery lubią się zlewać z białą obwódką i z innymi literami, sprawiając, że współczynniki kształtu są praktycznie bez użyteczne.
-Skutkuje to też, zmienną ilością elementów.
+Poszczególne litery lubią się zlewać z białą obwódką i z innymi literami, sprawiając, że współczynniki kształtu są praktycznie bezużyteczne.
+Skutkuje to też zmienną ilością elementów.
 Nie pomaga fakt, że w logo znajdują się dość mocne gradienty. 
 
 

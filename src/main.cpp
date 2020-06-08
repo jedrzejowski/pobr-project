@@ -5,7 +5,7 @@
 int main(int argc, char *argv[]) {
 
 	if (argc != 3) {
-		std::cout << "usage: pobr_app input_image output_image";
+		std::cout << "usage: " << argv[0] << " input_image output_image" << std::endl;
 		return 1;
 	}
 
